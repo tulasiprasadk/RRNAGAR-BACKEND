@@ -1,9 +1,9 @@
 /**
  * backend/index.js
- * RR Nagar Backend – FULL FILE
+ * RR Nagar Backend – FINAL FIXED FILE
  */
 
-require('dotenv').config();
+require("dotenv").config();
 
 const express = require("express");
 const session = require("express-session");
@@ -16,19 +16,20 @@ const customerProfileRoutes = require("./routes/customer/profile");
 
 const app = express();
 
-// Determine environment for security-sensitive settings
-const isProd = process.env.NODE_ENV === 'production';
+// Detect production
+const isProd = process.env.NODE_ENV === "production";
 
-// Behind proxies (Render/Heroku/Vercel), trust proxy so secure cookies work
+// Trust proxy on Render / cloud
 if (isProd) {
-  app.set('trust proxy', 1);
+  app.set("trust proxy", 1);
 }
 
 /* =============================
-   CORS CONFIG (CONFIGURABLE)
+   CORS CONFIG (FIXED)
 ============================= */
-const allowedOrigins = (process.env.CORS_ORIGINS
-  || [
+const allowedOrigins = (
+  process.env.CORS_ORIGINS ||
+  [
     // Local development
     "http://localhost:5173",
     "http://localhost:5174",
@@ -37,18 +38,25 @@ const allowedOrigins = (process.env.CORS_ORIGINS
     "http://localhost:4173",
     "http://127.0.0.1:4173",
 
-    // Production frontend (GitHub Pages)
+    // GitHub Pages
     "https://tulasiprasadk.github.io",
-  ].join(',')
+
+    // Vercel
+    "https://rrnagar-coming-soon.vercel.app",
+
+    // Custom domain
+    "https://rrnagar.com",
+    "https://www.rrnagar.com",
+  ].join(",")
 )
-  .split(',')
+  .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow curl, Postman, server-to-server
+      // Allow Postman / curl / server-to-server
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
@@ -59,8 +67,12 @@ app.use(
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   })
 );
+
+// ✅ REQUIRED: allow preflight for POST + credentials
+app.options("*", cors());
 
 /* =============================
    BODY PARSERS
@@ -68,7 +80,7 @@ app.use(
 app.use(bodyParser.json({ charset: "utf-8" }));
 app.use(bodyParser.urlencoded({ extended: true, charset: "utf-8" }));
 
-// Force UTF-8 JSON responses
+// Force UTF-8 JSON
 app.use((req, res, next) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   next();
@@ -84,10 +96,8 @@ app.use(
     saveUninitialized: false,
     name: "rrnagar.sid",
     cookie: {
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 24 * 60 * 60 * 1000, // 24h
       httpOnly: true,
-      // In production when frontend and backend are on different domains,
-      // cross-site cookies require SameSite=None and Secure=true.
       secure: isProd,
       sameSite: isProd ? "none" : "lax",
       path: "/",
@@ -100,7 +110,9 @@ app.use(
 ============================= */
 app.use((req, res, next) => {
   console.log(
-    `📨 ${req.method} ${req.path} | Session: ${req.sessionID || "none"} | Customer: ${req.session?.customerId || "none"}`
+    `📨 ${req.method} ${req.path} | Session: ${req.sessionID || "none"} | Customer: ${
+      req.session?.customerId || "none"
+    }`
   );
   next();
 });
