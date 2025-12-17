@@ -25,49 +25,44 @@ if (isProd) {
 }
 
 /* =============================
-   CORS CONFIG (STABLE)
+   CORS CONFIG — FINAL (VERCEL + RENDER SAFE)
 ============================= */
-const allowedOrigins = (
-  process.env.CORS_ORIGINS ||
-  [
-    // Local
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://localhost:4173",
 
-    // GitHub Pages
-    "https://tulasiprasadk.github.io",
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
 
-    // Vercel
-    "https://rrnagar-coming-soon.vercel.app",
+  // Vercel
+  "https://rrnagar-coming-soon.vercel.app",
 
-    // Custom domains
-    "https://rrnagar.com",
-    "https://www.rrnagar.com",
-  ].join(",")
-)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+  // Custom domains
+  "https://rrnagar.com",
+  "https://www.rrnagar.com",
+];
 
 app.use(
   cors({
-    origin: (origin, callback) => {
+    origin: function (origin, callback) {
+      // Allow non-browser requests (Postman, server-to-server)
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      console.warn("❌ Blocked by CORS:", origin);
+      console.error("❌ CORS blocked:", origin);
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// ✅ Preflight MUST be handled explicitly
+app.options("/api/*", cors());
 
 /* =============================
    BODY PARSERS
