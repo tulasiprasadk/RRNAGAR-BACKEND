@@ -30,7 +30,7 @@ if (isProd) {
 }
 
 /* =============================
-   CORS (SINGLE, FINAL, SAFE)
+   CORS (SINGLE, FINAL, NODE-22 SAFE)
 ============================= */
 const allowedOrigins = [
   // Local
@@ -50,7 +50,7 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow server-to-server, Postman, curl
+      // Allow Postman / curl / server-to-server
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
@@ -65,9 +65,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
-// Preflight
-app.options("*", cors());
 
 /* =============================
    BODY PARSERS
