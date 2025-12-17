@@ -1,33 +1,37 @@
 /**
  * backend/index.js
- * RR Nagar Backend – FINAL STABLE (VERCEL + RENDER)
+ * RR Nagar Backend – FINAL CLEAN (RENDER + VERCEL + CUSTOM DOMAIN)
  */
 
 require("dotenv").config();
 
 const express = require("express");
-const session = require("express-session");
 const cors = require("cors");
+const session = require("express-session");
 const bodyParser = require("body-parser");
 const { sequelize } = require("./models");
 
+/* =============================
+   ROUTES IMPORTS
+============================= */
 const customerAuthRoutes = require("./routes/customer/auth");
 const customerProfileRoutes = require("./routes/customer/profile");
 
 const app = express();
 
-// Detect production
+/* =============================
+   ENV + PROXY
+============================= */
 const isProd = process.env.NODE_ENV === "production";
 
-// Trust proxy on Render
 if (isProd) {
+  // REQUIRED on Render for secure cookies
   app.set("trust proxy", 1);
 }
 
 /* =============================
-   CORS CONFIG — FINAL & SAFE
+   CORS (SINGLE, FINAL, SAFE)
 ============================= */
-
 const allowedOrigins = [
   // Local
   "http://localhost:5173",
@@ -46,14 +50,14 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow Postman / curl / server-to-server
+      // Allow server-to-server, Postman, curl
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      console.error("❌ CORS blocked:", origin);
+      console.error("❌ CORS BLOCKED:", origin);
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
@@ -62,6 +66,9 @@ app.use(
   })
 );
 
+// Preflight
+app.options("*", cors());
+
 /* =============================
    BODY PARSERS
 ============================= */
@@ -69,18 +76,18 @@ app.use(bodyParser.json({ charset: "utf-8" }));
 app.use(bodyParser.urlencoded({ extended: true, charset: "utf-8" }));
 
 /* =============================
-   SESSION SETUP
+   SESSION (CRITICAL FOR /auth/me)
 ============================= */
 app.use(
   session({
+    name: "rrnagar.sid",
     secret: process.env.SESSION_SECRET || "rrnagar-secret-key",
     resave: false,
     saveUninitialized: false,
-    name: "rrnagar.sid",
     cookie: {
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       httpOnly: true,
-      secure: isProd,              // REQUIRED on Render + Vercel
+      secure: isProd,              // MUST be true in production
       sameSite: isProd ? "none" : "lax",
       path: "/",
     },
@@ -88,7 +95,7 @@ app.use(
 );
 
 /* =============================
-   DEBUG LOG (SAFE)
+   DEBUG LOGGER (SAFE)
 ============================= */
 app.use((req, res, next) => {
   console.log(
