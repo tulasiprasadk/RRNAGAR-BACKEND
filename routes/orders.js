@@ -267,23 +267,25 @@ router.post("/submit-payment", upload.single("paymentScreenshot"), async (req, r
     const customerId = req.session.customerId;
     if (!customerId) return res.status(401).json({ msg: "Not logged in" });
 
-    if (!req.file) return res.status(400).json({ msg: "Screenshot missing" });
-
-    if (!req.body.unr || req.body.unr.length < 6)
-      return res.status(400).json({ msg: "Invalid UNR" });
+    // Accept either screenshot or UNR (at least one required)
+    const hasScreenshot = !!req.file;
+    const hasUNR = req.body.unr && req.body.unr.length >= 6;
+    if (!hasScreenshot && !hasUNR) {
+      return res.status(400).json({ msg: "Please provide either a payment screenshot or a valid UNR." });
+    }
 
     const orderId = req.body.orderId;
     if (!orderId) return res.status(400).json({ msg: "Missing orderId" });
 
     // update specific order info
-    const screenshotPath = `/uploads/payment/${req.file.filename}`;
+    const screenshotPath = hasScreenshot ? `/uploads/payment/${req.file.filename}` : undefined;
 
     const order = await Order.findOne({ where: { id: orderId, CustomerId: customerId } });
     if (!order) return res.status(404).json({ msg: "Order not found" });
 
     order.paymentStatus = "pending";
-    order.paymentUNR = req.body.unr;
-    order.paymentScreenshot = screenshotPath;
+    if (hasUNR) order.paymentUNR = req.body.unr;
+    if (hasScreenshot) order.paymentScreenshot = screenshotPath;
     await order.save();
 
     // notify admin to approve payment
@@ -291,7 +293,7 @@ router.post("/submit-payment", upload.single("paymentScreenshot"), async (req, r
       await Notification.create({
         type: "payment_submitted",
         title: "Payment Submitted",
-        message: `Order #${order.id} payment submitted. UNR: ${order.paymentUNR}. Approve in Admin → Payments.`,
+        message: `Order #${order.id} payment submitted. UNR: ${order.paymentUNR || "(screenshot only)"}. Approve in Admin → Payments.`,
         isRead: false
       });
     } catch (notifErr) {
