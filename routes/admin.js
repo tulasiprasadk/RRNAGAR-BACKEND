@@ -41,7 +41,6 @@ router.get('/admins/pending', requireSuperAdmin, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
-const router = express.Router();
 const { Category, Ad, AnalyticsVisit, Product, Admin } = require('../models');
 const { translateToKannada, translateBatch } = require('../services/translator');
 const bcrypt = require('bcrypt');
