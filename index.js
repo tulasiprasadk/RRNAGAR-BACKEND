@@ -1,6 +1,6 @@
 /**
  * backend/index.js
- * RR Nagar Backend – FINAL CLEAN (RENDER + VERCEL + CUSTOM DOMAIN)
+ * RR Nagar Backend – FINAL CLEAN (NODE 22 + RENDER + VERCEL)
  */
 
 require("dotenv").config();
@@ -8,14 +8,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const session = require("express-session");
-const bodyParser = require("body-parser");
 const { sequelize } = require("./models");
-
-/* =============================
-   ROUTES IMPORTS
-============================= */
-const customerAuthRoutes = require("./routes/customer/auth");
-const customerProfileRoutes = require("./routes/customer/profile");
 
 const app = express();
 
@@ -25,55 +18,43 @@ const app = express();
 const isProd = process.env.NODE_ENV === "production";
 
 if (isProd) {
-  // REQUIRED on Render for secure cookies
   app.set("trust proxy", 1);
 }
 
 /* =============================
-   CORS (SINGLE, FINAL, NODE-22 SAFE)
+   CORS (SINGLE, FINAL)
 ============================= */
 const allowedOrigins = [
-  // Local
   "http://localhost:5173",
   "http://localhost:5174",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5174",
-
-  // Vercel
   "https://rrnagar-coming-soon.vercel.app",
-
-  // Custom domains
   "https://rrnagar.com",
   "https://www.rrnagar.com",
+  "https://rrnagar-coming-soon.vercel.app/"
 ];
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow Postman / curl / server-to-server
+    origin(origin, callback) {
       if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
+      if (allowedOrigins.includes(origin)) return callback(null, true);
       console.error("❌ CORS BLOCKED:", origin);
-      return callback(new Error("Not allowed by CORS"));
+      callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
 /* =============================
    BODY PARSERS
 ============================= */
-app.use(bodyParser.json({ charset: "utf-8" }));
-app.use(bodyParser.urlencoded({ extended: true, charset: "utf-8" }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 /* =============================
-   SESSION (CRITICAL FOR /auth/me)
+   SESSION
 ============================= */
 app.use(
   session({
@@ -82,73 +63,57 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 24 * 60 * 60 * 1000,
       httpOnly: true,
-      secure: isProd,              // MUST be true in production
+      secure: isProd,
       sameSite: isProd ? "none" : "lax",
-      path: "/",
     },
   })
 );
 
 /* =============================
-   DEBUG LOGGER (SAFE)
+   REQUEST LOGGER
 ============================= */
 app.use((req, res, next) => {
-  console.log(
-    `📨 ${req.method} ${req.path} | Session: ${req.sessionID || "none"}`
-  );
+  console.log(`📨 ${req.method} ${req.originalUrl}`);
   next();
 });
 
 /* =============================
    ROUTES
 ============================= */
-
-// Health check
 app.get("/", (req, res) => {
   res.send("RR Nagar Backend Running");
 });
 
 // CUSTOMER
-app.use("/api/auth", customerAuthRoutes);
-app.use("/api/customer/profile", customerProfileRoutes);
+app.use("/api/auth", require("./routes/customer/auth"));
+app.use("/api/customer/profile", require("./routes/customer/profile"));
 app.use("/api/customer/address", require("./routes/customer/address"));
-app.use("/api/customer/dashboard-stats", require("./routes/customer/dashboard-stats"));
-app.use("/api/customer/payment", require("./routes/customer/payment"));
-app.use("/api/customer/saved-suppliers", require("./routes/customer/saved-suppliers"));
 
 // ADMIN
 app.use("/api/admin/auth", require("./routes/admin/auth"));
 app.use("/api/admin", require("./routes/admin"));
-app.use("/api/admin/orders", require("./routes/admin/orders"));
-app.use("/api/admin/notifications", require("./routes/admin/notifications"));
-app.use("/api/admin/payments", require("./routes/admin-payments"));
-
-// SUPPLIER
-app.use("/api/supplier/auth", require("./routes/supplier/auth"));
-app.use("/api/supplier/orders", require("./routes/supplier/orders"));
-app.use("/api/suppliers", require("./routes/suppliers"));
 
 // GENERAL
 app.use("/api/products", require("./routes/products"));
 app.use("/api/categories", require("./routes/categories"));
 app.use("/api/orders", require("./routes/orders"));
-app.use("/api/shops", require("./routes/shops"));
-app.use("/api/stock", require("./routes/stock"));
-app.use("/api/ads", require("./routes/ads"));
-app.use("/api/analytics", require("./routes/analytics"));
-app.use("/api/upload", require("./routes/upload"));
-app.use("/api", require("./routes/partner"));
 
-// Static uploads
 app.use("/uploads", express.static("uploads"));
 
 /* =============================
-   GLOBAL ERROR HANDLER
+   404 HANDLER (CRITICAL)
+============================= */
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
+/* =============================
+   ERROR HANDLER
 ============================= */
 app.use((err, req, res, next) => {
-  console.error("❌ Server error:", err.message);
+  console.error("❌ Server error:", err);
   res.status(500).json({ error: err.message });
 });
 
@@ -160,9 +125,9 @@ const PORT = process.env.PORT || 4000;
 sequelize
   .sync()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log(`🚀 RR Nagar backend running on port ${PORT}`);
-    });
+    app.listen(PORT, () =>
+      console.log(`🚀 RR Nagar backend running on port ${PORT}`)
+    );
   })
   .catch((err) => {
     console.error("❌ Database error:", err);

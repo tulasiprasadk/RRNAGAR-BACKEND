@@ -1,28 +1,83 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const { Product, Supplier, Category, Ad, AnalyticsVisit, ProductSupplier } = require('../models');
-const multer = require('multer');
-const path = require('path');
-const { translateToKannada } = require('../services/translator');
+const { Product, Supplier, Category, Ad, AnalyticsVisit, ProductSupplier } = require("../models");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const { Op } = require("sequelize");
+const { translateToKannada } = require("../services/translator");
 
-// Configure multer for product images
+/* =============================
+   MULTER SAFE SETUP
+============================= */
+const uploadDir = "uploads/products";
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/products/'),
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+  destination: (_, __, cb) => cb(null, uploadDir),
+  filename: (_, file, cb) =>
+    cb(null, `${Date.now()}-${file.originalname.replace(/\s+/g, "_")}`)
 });
+
 const upload = multer({ storage });
 
-// GET /api/products?query=...
-router.get('/', async (req, res) => {
+/* =============================
+   STATIC ROUTES (MUST BE FIRST)
+============================= */
+
+// GET ads
+router.get("/ads/all", async (_, res) => {
   try {
-    const { q, search, categoryId, variety, supplier } = req.query;
-    const supplierFilter = supplier === 'true';
-    const Op = require('sequelize').Op;
-    
-    let where = {};
-    
-    // Search query - checks title, variety, subVariety, description
+    const ads = await Ad.findAll({
+      where: { active: true },
+      order: [["order", "ASC"]]
+    });
+    res.json(ads);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load ads" });
+  }
+});
+
+// analytics visit
+router.post("/visit", async (req, res) => {
+  try {
+    await AnalyticsVisit.create({
+      path: req.body.path || "",
+      referrer: req.body.referrer || "",
+      ip: req.ip,
+      userAgent: req.get("User-Agent") || ""
+    });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ ok: false });
+  }
+});
+
+// templates
+router.get("/templates/all", async (_, res) => {
+  try {
+    const templates = await Product.findAll({
+      where: { isTemplate: true },
+      include: [{ model: Category }],
+      order: [["title", "ASC"]]
+    });
+    res.json(templates);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* =============================
+   GET PRODUCTS LIST
+============================= */
+router.get("/", async (req, res) => {
+  try {
+    const { search, q, categoryId, variety, supplier } = req.query;
     const searchTerm = search || q;
+    const where = {};
+
     if (searchTerm) {
       where[Op.or] = [
         { title: { [Op.like]: `%${searchTerm}%` } },
@@ -31,280 +86,159 @@ router.get('/', async (req, res) => {
         { description: { [Op.like]: `%${searchTerm}%` } }
       ];
     }
-    
-    // Filter by category
-    if (categoryId) {
-      where.CategoryId = parseInt(categoryId);
-    }
-    
-    // Filter by variety
-    if (variety) {
-      where.variety = variety;
-    }
-    
-    // If supplier filter is requested, add supplierId from session
-    if (supplierFilter && req.session.supplierId) {
+
+    if (categoryId) where.CategoryId = Number(categoryId);
+    if (variety) where.variety = variety;
+
+    if (supplier === "true" && req.session?.supplierId) {
       where.supplierId = req.session.supplierId;
     }
-    
-    const products = await Product.findAll({ 
-      where, 
+
+    const products = await Product.findAll({
+      where,
       include: [
-        { model: Supplier, as: 'suppliers', attributes: ['id', 'name', 'phone'], through: { attributes: [] } },
-        { model: Category, attributes: ['id', 'name', 'icon'] }
+        {
+          model: Supplier,
+          as: "suppliers",
+          attributes: ["id", "name", "phone"],
+          through: { attributes: [] }
+        },
+        {
+          model: Category,
+          attributes: ["id", "name"]
+        }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [["createdAt", "DESC"]]
     });
-    
+
     res.json(products);
   } catch (err) {
-    console.error('Error fetching products:', err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ Products GET error:", err);
+    res.status(500).json({ error: "Failed to load products" });
   }
 });
 
-// GET product by id
-router.get('/:id', async (req, res) => {
+/* =============================
+   GET PRODUCT BY ID (LAST)
+============================= */
+router.get("/:id", async (req, res) => {
   try {
-    const product = await Product.findByPk(req.params.id, { 
+    const product = await Product.findByPk(req.params.id, {
       include: [
-        { model: Supplier, as: 'suppliers', attributes: ['id', 'name', 'phone'], through: { attributes: [] } },
-        { model: Category, attributes: ['id', 'name', 'icon'] }
+        { model: Supplier, as: "suppliers", attributes: ["id", "name", "phone"], through: { attributes: [] } },
+        { model: Category, attributes: ["id", "name"] }
       ]
     });
+
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
     res.json(product);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET ads
-router.get('/ads/all', async (req, res) => {
-  const ads = await Ad.findAll({ where: { active: true }, order: [['order', 'ASC']] });
-  res.json(ads);
-});
-
-// analytics: record visit
-router.post('/visit', async (req, res) => {
+/* =============================
+   CREATE PRODUCT
+============================= */
+router.post("/", upload.single("image"), async (req, res) => {
   try {
-    await AnalyticsVisit.create({
-      path: req.body.path,
-      referrer: req.body.referrer || '',
-      ip: req.ip,
-      userAgent: req.get('User-Agent') || ''
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ ok: false });
-  }
-});
+    const supplierId = req.session?.supplierId || null;
+    const adminId = req.session?.adminId || null;
 
-// POST /api/products - Add new product (for suppliers)
-router.post('/', upload.single('image'), async (req, res) => {
-  try {
-    const { name, title, price, description, image_url, categoryId, variety, subVariety, unit, templateId } = req.body;
-    const supplierId = req.session.supplierId;
-    const adminId = req.session.adminId;
-
-    // Either supplier or admin must be authenticated
     if (!supplierId && !adminId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return res.status(401).json({ error: "Not authenticated" });
     }
+
+    const {
+      title,
+      name,
+      price,
+      description,
+      categoryId,
+      variety,
+      subVariety,
+      unit,
+      templateId
+    } = req.body;
 
     const productData = {
       title: title || name,
-      price: parseFloat(price),
-      description: description || '',
-      image: req.file ? req.file.path : (image_url || ''),
+      description: description || "",
+      price: Number(price || 0),
+      CategoryId: categoryId || null,
       variety: variety || null,
       subVariety: subVariety || null,
-      unit: unit || 'piece',
-      supplierId: supplierId || null,
-      CategoryId: categoryId || null,
-      isTemplate: adminId && !supplierId ? true : false // Admin creates templates
+      unit: unit || "piece",
+      image: req.file ? req.file.path : "",
+      supplierId,
+      isTemplate: adminId && !supplierId
     };
 
-    // If supplier is using a template, copy template details
     if (templateId && supplierId) {
       const template = await Product.findByPk(templateId);
-      if (template && template.isTemplate) {
-        productData.title = template.title;
-        productData.description = template.description;
-        productData.variety = variety || template.variety;
-        productData.subVariety = subVariety || template.subVariety;
-        productData.unit = template.unit;
-        productData.CategoryId = template.CategoryId || template.categoryId;
-        productData.image = req.file ? req.file.path : (template.image || '');
-        productData.isTemplate = false;
+      if (template?.isTemplate) {
+        Object.assign(productData, {
+          title: template.title,
+          description: template.description,
+          variety: template.variety,
+          subVariety: template.subVariety,
+          unit: template.unit,
+          CategoryId: template.CategoryId,
+          image: template.image
+        });
       }
     }
 
     const product = await Product.create(productData);
-    
-    // Automatically translate to Kannada
+
     try {
       const titleKannada = await translateToKannada(product.title);
-      const descriptionKannada = product.description ? await translateToKannada(product.description) : '';
-      await product.update({ 
-        titleKannada, 
-        descriptionKannada 
-      });
-      console.log(`Auto-translated product ${product.id}: ${product.title} -> ${titleKannada}`);
-    } catch (translateErr) {
-      console.error('Auto-translation failed:', translateErr);
-      // Continue without translation - don't fail the product creation
+      const descKannada = product.description
+        ? await translateToKannada(product.description)
+        : "";
+      await product.update({ titleKannada, descriptionKannada: descKannada });
+    } catch {
+      /* silent */
     }
-    
-    res.status(201).json({ message: 'Product added successfully', product });
+
+    res.status(201).json(product);
   } catch (err) {
-    console.error('Error adding product:', err);
+    console.error("❌ Product CREATE error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/products/bulk - Bulk upload products (admin only)
-router.post('/bulk', async (req, res) => {
+/* =============================
+   DELETE PRODUCT
+============================= */
+router.delete("/:id", async (req, res) => {
   try {
-    const adminId = req.session.adminId;
-    if (!adminId && !allowWithoutSession) {
-      return res.status(401).json({ error: 'Admin authentication required' });
-    }
-
-    const { products } = req.body; // Array of product objects
-    
-    if (!Array.isArray(products) || products.length === 0) {
-      return res.status(400).json({ error: 'Products array is required' });
-    }
-
-    const createdProducts = [];
-    const errors = [];
-
-    for (let i = 0; i < products.length; i++) {
-      try {
-        const p = products[i];
-        const product = await Product.create({
-          title: p.title || p.name,
-          description: p.description || '',
-          price: parseFloat(p.price || 0),
-          variety: p.variety || null,
-          subVariety: p.subVariety || null,
-          unit: p.unit || 'piece',
-          CategoryId: p.categoryId || null,
-          isTemplate: true,
-          supplierId: null
-        });
-        
-        // Auto-translate to Kannada
-        try {
-          const titleKannada = await translateToKannada(product.title);
-          const descriptionKannada = product.description ? await translateToKannada(product.description) : '';
-          await product.update({ titleKannada, descriptionKannada });
-        } catch (translateErr) {
-          console.error(`Translation failed for product ${i}:`, translateErr);
-        }
-        
-        createdProducts.push(product);
-      } catch (err) {
-        errors.push({ index: i, error: err.message, product: products[i] });
-      }
-    }
-
-    res.json({
-      message: `Bulk upload completed. ${createdProducts.length} products created.`,
-      created: createdProducts.length,
-      errors: errors.length,
-      errorDetails: errors
-    });
-  } catch (err) {
-    console.error('Bulk upload error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/products/templates - Get all product templates (for suppliers to choose from)
-router.get('/templates/all', async (req, res) => {
-  try {
-    const templates = await Product.findAll({
-      where: { isTemplate: true },
-      include: [Category],
-      order: [['title', 'ASC']]
-    });
-    res.json(templates);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUT /api/products/:id - Update product
-router.put('/:id', upload.single('image'), async (req, res) => {
-  try {
-    const { name, title, price, description, image_url, categoryId } = req.body;
-    const supplierId = req.session.supplierId;
-
-    if (!supplierId) {
-      return res.status(401).json({ error: 'Not authenticated as supplier' });
-    }
+    const supplierId = req.session?.supplierId;
+    const adminId = req.session?.adminId;
 
     const product = await Product.findByPk(req.params.id);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    if (product.supplierId !== supplierId) {
-      return res.status(403).json({ error: 'Not authorized to update this product' });
-    }
-
-    const updateData = {
-      title: title || name || product.title,
-      price: price ? parseFloat(price) : product.price,
-      description: description !== undefined ? description : product.description,
-      CategoryId: categoryId !== undefined ? categoryId : product.CategoryId
-    };
-
-    if (req.file) {
-      updateData.image = req.file.path;
-    } else if (image_url) {
-      updateData.image = image_url;
-    }
-
-    await product.update(updateData);
-    res.json({ message: 'Product updated successfully', product });
-  } catch (err) {
-    console.error('Error updating product:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/products/:id - Delete product
-router.delete('/:id', async (req, res) => {
-  try {
-    const supplierId = req.session.supplierId;
-    const adminId = req.session.adminId || (req.headers['x-admin-token'] ? 1 : null);
-
-    // Admin UI currently works without explicit login token; allow delete if no session
-    const allowWithoutSession = !supplierId && !adminId;
-
-    const product = await Product.findByPk(req.params.id);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
+    if (!product) return res.status(404).json({ error: "Not found" });
 
     if (!adminId) {
-      const legacyMatch = product.supplierId === supplierId;
-      const junctionMatch = await ProductSupplier.findOne({
-        where: { productId: product.id, supplierId }
-      });
+      const owns =
+        product.supplierId === supplierId ||
+        (await ProductSupplier.findOne({
+          where: { productId: product.id, supplierId }
+        }));
 
-      if (!legacyMatch && !junctionMatch) {
-        return res.status(403).json({ error: 'Not authorized to delete this product' });
+      if (!owns) {
+        return res.status(403).json({ error: "Not authorized" });
       }
     }
 
     await ProductSupplier.destroy({ where: { productId: product.id } });
     await product.destroy();
-    res.json({ message: 'Product deleted successfully' });
+
+    res.json({ ok: true });
   } catch (err) {
-    console.error('Error deleting product:', err);
     res.status(500).json({ error: err.message });
   }
 });

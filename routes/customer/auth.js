@@ -1,13 +1,14 @@
 /**
  * backend/routes/customer/auth.js
- * Customer Authentication Routes
- * ✅ FIXED: OTP stored in DB (no in-memory store)
+ * Customer Authentication Routes – FINAL CLEAN
  */
 
 const express = require("express");
 const router = express.Router();
 const { Customer } = require("../../models");
 const { sendOTP } = require("../../services/emailService");
+
+const isProd = process.env.NODE_ENV === "production";
 
 /* =====================================================
    REQUEST EMAIL OTP
@@ -17,17 +18,14 @@ router.post("/request-email-otp", async (req, res) => {
   const { email } = req.body;
 
   if (!email) {
-    return res.status(400).json({ error: "Email or username is required" });
+    return res.status(400).json({ error: "Email required" });
   }
 
   try {
     let customer;
 
-    // Email login OR username (phone)
     if (email.includes("@")) {
       customer = await Customer.findOne({ where: { email } });
-
-      // Auto-create customer if not exists (email flow)
       if (!customer) {
         customer = await Customer.create({ email });
       }
@@ -35,31 +33,28 @@ router.post("/request-email-otp", async (req, res) => {
       customer = await Customer.findOne({ where: { username: email } });
     }
 
-    if (!customer || !customer.email) {
-      return res.status(404).json({ error: "User not found" });
+    // Always return success to avoid user enumeration
+    if (!customer?.email) {
+      return res.json({ success: true });
     }
 
-    // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // ✅ SAVE OTP TO DATABASE
     await customer.update({
       otpCode: otp,
-      otpExpiresAt: expiresAt,
+      otpExpiresAt: expiresAt
     });
 
-    // Send OTP email
     await sendOTP(customer.email, otp);
 
-    console.log("📧 OTP SENT:", customer.email, otp);
+    if (!isProd) {
+      console.log("📧 OTP SENT (DEV):", customer.email, otp);
+    }
 
-    res.json({
-      success: true,
-      message: "OTP sent to email",
-    });
+    res.json({ success: true, message: "OTP sent" });
   } catch (err) {
-    console.error("OTP Send Error:", err);
+    console.error("❌ OTP Send Error:", err);
     res.status(500).json({ error: "Failed to send OTP" });
   }
 });
@@ -76,42 +71,34 @@ router.post("/verify-email-otp", async (req, res) => {
   }
 
   try {
-    let customer;
+    const customer = email.includes("@")
+      ? await Customer.findOne({ where: { email } })
+      : await Customer.findOne({ where: { username: email } });
 
-    if (email.includes("@")) {
-      customer = await Customer.findOne({ where: { email } });
-    } else {
-      customer = await Customer.findOne({ where: { username: email } });
-    }
-
-    if (!customer || !customer.otpCode) {
-      return res.status(401).json({ error: "Invalid OTP" });
-    }
-
-    // Validate OTP + expiry
     if (
+      !customer ||
       customer.otpCode !== otp ||
+      !customer.otpExpiresAt ||
       new Date() > customer.otpExpiresAt
     ) {
       return res.status(401).json({ error: "Invalid or expired OTP" });
     }
 
-    // ✅ CLEAR OTP AFTER SUCCESS
     await customer.update({
       otpCode: null,
-      otpExpiresAt: null,
+      otpExpiresAt: null
     });
 
-    // Save login session
     req.session.customerId = customer.id;
 
-    res.json({
-      success: true,
-      message: "OTP verified, logged in",
-      customerId: customer.id,
+    req.session.save(() => {
+      res.json({
+        success: true,
+        customerId: customer.id
+      });
     });
   } catch (err) {
-    console.error("Verify OTP Error:", err);
+    console.error("❌ Verify OTP Error:", err);
     res.status(500).json({ error: "Verification failed" });
   }
 });
@@ -127,7 +114,7 @@ router.get("/me", (req, res) => {
 
   res.json({
     loggedIn: true,
-    customerId: req.session.customerId,
+    customerId: req.session.customerId
   });
 });
 
@@ -137,7 +124,12 @@ router.get("/me", (req, res) => {
 ===================================================== */
 router.post("/logout", (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie("rrnagar.sid");
+    res.clearCookie("rrnagar.sid", {
+      path: "/",
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax"
+    });
     res.json({ success: true });
   });
 });
