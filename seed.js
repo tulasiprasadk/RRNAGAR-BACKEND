@@ -8,7 +8,15 @@ async function seed() {
     await sequelize.sync();
     
     // Clear existing data (delete in reverse dependency order)
-    await sequelize.query('DELETE FROM ProductSuppliers'); // Junction table first
+    try {
+      await sequelize.query('DELETE FROM "ProductSuppliers"'); // Junction table first (case-sensitive)
+    } catch (err) {
+      if (err.message && err.message.includes('does not exist')) {
+        console.warn('ProductSuppliers table does not exist, skipping delete.');
+      } else {
+        throw err;
+      }
+    }
     await Product.destroy({ where: {} });
     await Supplier.destroy({ where: {} });
     await Ad.destroy({ where: {} });
@@ -23,6 +31,7 @@ async function seed() {
     // Create suppliers
     const s1 = await Supplier.create({
       name: "FreshMart Groceries",
+      email: "freshmart@example.com",
       phone: "9876543210",
       address: "RR Nagar, Bengaluru",
       description: "Your trusted grocery store",
@@ -30,6 +39,7 @@ async function seed() {
 
     const s2 = await Supplier.create({
       name: "RR Nagar Vegetables",
+      email: "vegetables@example.com",
       phone: "9988776655",
       address: "Ideal Homes, RR Nagar",
       description: "Fresh vegetables & fruits",
@@ -76,16 +86,27 @@ async function seed() {
     // Link a single product to a supplier to avoid older DB unique constraints
     await p1.addSupplier(s2);
 
-    // Create a sample order for admin testing
-    const { Order } = require("./models");
+    // Create a sample customer and order for admin testing
+    const { Order, Customer } = require("./models");
+    // Use your test email and upsert the customer
+    const [testCustomer] = await Customer.findOrCreate({
+      where: { email: "tulasiprasadk@gmail.com" },
+      defaults: {
+        username: "tulasiprasadk",
+        phone: "9999999999"
+      }
+    });
     await Order.create({
-      customerName: "Test User",
+      customerName: "Tulasiprasad K",
       customerPhone: "9999999999",
       customerAddress: "123 Test Street, RR Nagar",
       totalAmount: 100,
       status: "created",
       paymentStatus: "pending",
-      SupplierId: s2.id
+      SupplierId: s2.id,
+      CustomerId: testCustomer.id,
+      productId: p1.id,
+      qty: 1
     });
 
     // Create ads with required imageUrl and position fields
