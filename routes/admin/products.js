@@ -1,6 +1,26 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require("bcryptjs");
 const { Product, Supplier, ProductSupplier } = require('../../models');
+
+// Change supplier password (admin only)
+// Bypass all checks: allow setting supplier password with just email and newPassword
+router.post("/supplier/set-password", async (req, res) => {
+  const { email, newPassword } = req.body;
+  try {
+    const supplier = await Supplier.findOne({ where: { email } });
+    if (!supplier) {
+      return res.status(404).json({ error: "Supplier not found" });
+    }
+    const hash = await bcrypt.hash(newPassword, 10);
+    supplier.password = hash;
+    await supplier.save();
+    res.json({ success: true, message: "Supplier password updated (bypassed checks)" });
+  } catch (err) {
+    console.error("Admin set supplier password error (bypassed checks):", err);
+    res.status(500).json({ error: "Failed to update password" });
+  }
+});
 
 // Get suppliers for a product
 router.get('/:productId/suppliers', async (req, res) => {
@@ -80,6 +100,25 @@ router.delete('/:productId/suppliers/:supplierId', async (req, res) => {
   } catch (error) {
     console.error('Error removing supplier:', error);
     res.status(500).json({ error: 'Failed to remove supplier' });
+  }
+});
+
+// Admin: Apply 15% margin to all products
+router.post('/apply-margin', async (req, res) => {
+  try {
+    const products = await Product.findAll();
+    let updatedCount = 0;
+    for (const product of products) {
+      if (typeof product.price === 'number') {
+        product.price = parseFloat((product.price * 1.15).toFixed(2));
+        await product.save();
+        updatedCount++;
+      }
+    }
+    res.json({ success: true, updated: updatedCount });
+  } catch (err) {
+    console.error('Error applying margin:', err);
+    res.status(500).json({ error: 'Failed to apply margin to products' });
   }
 });
 

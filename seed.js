@@ -60,12 +60,33 @@ async function seed() {
       price: 45,
       unit: "loaf",
       image: "https://via.placeholder.com/300x200?text=Brown+Bread",
-      CategoryId: cat("Groceries")
+      CategoryId: cat("Bakery")
+    });
+
+    const pMonthly = await Product.create({
+      title: "Monthly Flower Delivery Package",
+      description: "Get fresh flowers delivered daily for a month.",
+      price: 999,
+      unit: "package",
+      image: "https://via.placeholder.com/300x200?text=Monthly+Flowers",
+      CategoryId: cat("Monthly Flower Package")
     });
 
     // Link products to suppliers via many-to-many junction
     // Link a single product to a supplier to avoid older DB unique constraints
     await p1.addSupplier(s2);
+
+    // Create a sample order for admin testing
+    const { Order } = require("./models");
+    await Order.create({
+      customerName: "Test User",
+      customerPhone: "9999999999",
+      customerAddress: "123 Test Street, RR Nagar",
+      totalAmount: 100,
+      status: "created",
+      paymentStatus: "pending",
+      SupplierId: s2.id
+    });
 
     // Create ads with required imageUrl and position fields
     await Ad.create({

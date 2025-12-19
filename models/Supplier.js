@@ -4,7 +4,7 @@ module.exports = (sequelize, DataTypes) => {
     businessName: DataTypes.STRING,
     email: { type: DataTypes.STRING, allowNull: false, unique: true },
     phone: DataTypes.STRING,
-    password: DataTypes.STRING, // hashed password
+      password: DataTypes.STRING, // hashed password
     otp: DataTypes.STRING,      // temporary OTP for login
     otpExpiry: DataTypes.DATE,  // OTP expiration time
     address: DataTypes.TEXT,

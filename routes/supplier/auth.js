@@ -14,6 +14,7 @@ const otpStore = {}; // Format: { email: { otp: "123456", expiresAt: timestamp }
    REQUEST EMAIL OTP (Supplier Login)
    POST /api/supplier/auth/request-email-otp
    ===================================================== */
+// OTP bypass: always succeed for email login
 router.post("/request-email-otp", async (req, res) => {
   const { email } = req.body;
 
@@ -45,21 +46,10 @@ router.post("/request-email-otp", async (req, res) => {
       });
     }
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    
-    // Store with 10 minute expiry
-    const expiresAt = Date.now() + 10 * 60 * 1000;
-    otpStore[email] = { otp, expiresAt };
-
-    // Send OTP via email
-    await sendOTP(email, otp);
-
-    console.log("📧 SUPPLIER OTP SENT:", email, otp);
-
+    // Bypass OTP: always succeed
     res.json({
       success: true,
-      message: "OTP sent to email",
+      message: "OTP bypassed for development",
     });
   } catch (err) {
     console.error("Supplier OTP Send Error:", err);
@@ -71,29 +61,17 @@ router.post("/request-email-otp", async (req, res) => {
    VERIFY EMAIL OTP (Supplier Login)
    POST /api/supplier/auth/verify-email-otp
    ===================================================== */
+// OTP bypass: always succeed for verification
+// Require password for supplier login (OTP bypassed)
+const bcrypt = require("bcryptjs");
 router.post("/verify-email-otp", async (req, res) => {
-  const { email, otp } = req.body;
+  const { email, password } = req.body;
 
-  if (!email || !otp) {
-    return res.status(400).json({ error: "Email and OTP required" });
-  }
-
-  // Check if OTP exists and is valid
-  const stored = otpStore[email];
-  
-  if (!stored || stored.otp !== otp) {
-    return res.status(401).json({ error: "Invalid OTP" });
-  }
-
-  if (Date.now() > stored.expiresAt) {
-    delete otpStore[email];
-    return res.status(401).json({ error: "OTP expired" });
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
   }
 
   try {
-    // OTP valid → delete it
-    delete otpStore[email];
-
     // Find supplier
     const supplier = await Supplier.findOne({ where: { email } });
 
@@ -101,12 +79,17 @@ router.post("/verify-email-otp", async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
+    // Check password
+    if (!supplier.password || !(await bcrypt.compare(password, supplier.password))) {
+      return res.status(401).json({ error: "Invalid password" });
+    }
+
     // Save supplier ID in session
     req.session.supplierId = supplier.id;
 
     res.json({
       success: true,
-      message: "OTP verified, logged in",
+      message: "Login successful",
       supplier: {
         id: supplier.id,
         name: supplier.name,
@@ -115,8 +98,8 @@ router.post("/verify-email-otp", async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("Supplier Verify OTP Error:", err);
-    res.status(500).json({ error: "Verification failed" });
+    console.error("Supplier Login Error:", err);
+    res.status(500).json({ error: "Failed to login" });
   }
 });
 

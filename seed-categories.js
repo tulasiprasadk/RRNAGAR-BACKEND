@@ -7,6 +7,7 @@ const categories = [
   { name: 'Fruits', icon: '🍎' },
   { name: 'Milk Products', icon: '🥛' },
   { name: 'Groceries', icon: '🛒' },
+  { name: 'Monthly Flower Package', icon: '📅' },
 ];
 
 async function seed() {

@@ -1,5 +1,27 @@
 const express = require("express");
 const router = express.Router();
+/* =============================
+  ADMIN: UPDATE PRODUCT PRICE
+============================= */
+router.put("/:id", async (req, res) => {
+  try {
+    const adminId = req.session?.adminId;
+    if (!adminId) return res.status(401).json({ error: "Admin login required" });
+    const product = await Product.findByPk(req.params.id);
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    const { price, title, variety, subVariety, description, CategoryId } = req.body;
+    if (price !== undefined) product.price = price;
+    if (title !== undefined) product.title = title;
+    if (variety !== undefined) product.variety = variety;
+    if (subVariety !== undefined) product.subVariety = subVariety;
+    if (description !== undefined) product.description = description;
+    if (CategoryId !== undefined) product.CategoryId = CategoryId;
+    await product.save();
+    res.json(product);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 const { Product, Supplier, Category, Ad, AnalyticsVisit, ProductSupplier } = require("../models");
 const multer = require("multer");
 const path = require("path");
@@ -75,15 +97,25 @@ router.get("/templates/all", async (_, res) => {
 router.get("/", async (req, res) => {
   try {
     const { search, q, categoryId, variety, supplier } = req.query;
-    const searchTerm = search || q;
+    let searchTerm = search || q;
+    if (!searchTerm && req.query) {
+      // fallback: check all possible keys for tomato
+      for (const key of Object.keys(req.query)) {
+        if (String(req.query[key]).toLowerCase().includes("tomato")) {
+          searchTerm = "tomato";
+          break;
+        }
+      }
+    }
+    console.log("[PRODUCT SEARCH] search=", search, "q=", q, "searchTerm=", searchTerm, "categoryId=", categoryId, "variety=", variety, "supplier=", supplier);
     const where = {};
 
     if (searchTerm) {
       where[Op.or] = [
-        { title: { [Op.like]: `%${searchTerm}%` } },
-        { variety: { [Op.like]: `%${searchTerm}%` } },
-        { subVariety: { [Op.like]: `%${searchTerm}%` } },
-        { description: { [Op.like]: `%${searchTerm}%` } }
+        { title: { [Op.iLike]: `%${searchTerm}%` } },
+        { variety: { [Op.iLike]: `%${searchTerm}%` } },
+        { subVariety: { [Op.iLike]: `%${searchTerm}%` } },
+        { description: { [Op.iLike]: `%${searchTerm}%` } }
       ];
     }
 
@@ -110,7 +142,7 @@ router.get("/", async (req, res) => {
       ],
       order: [["createdAt", "DESC"]]
     });
-
+    console.log(`[PRODUCT SEARCH] found ${products.length} products`);
     res.json(products);
   } catch (err) {
     console.error("❌ Products GET error:", err);

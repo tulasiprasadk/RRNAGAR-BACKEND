@@ -92,8 +92,8 @@ app.use("/api/customer/profile", require("./routes/customer/profile"));
 app.use("/api/customer/address", require("./routes/customer/address"));
 
 // ADMIN
-app.use("/api/admin/auth", require("./routes/admin/auth"));
-app.use("/api/admin", require("./routes/admin"));
+// app.use("/api/admin/auth", require("./routes/admin/auth"));
+app.use("/api/admin", require("./routes/admin/index.js"));
 
 // GENERAL
 app.use("/api/products", require("./routes/products"));

@@ -63,31 +63,27 @@ router.post("/request-email-otp", async (req, res) => {
    VERIFY EMAIL OTP
    POST /api/auth/verify-email-otp
 ===================================================== */
+// OTP bypass: only require email for login
 router.post("/verify-email-otp", async (req, res) => {
-  const { email, otp } = req.body;
+  const { email } = req.body;
 
-  if (!email || !otp) {
-    return res.status(400).json({ error: "Email and OTP required" });
+  if (!email) {
+    return res.status(400).json({ error: "Email required" });
   }
 
   try {
-    const customer = email.includes("@")
-      ? await Customer.findOne({ where: { email } })
-      : await Customer.findOne({ where: { username: email } });
-
-    if (
-      !customer ||
-      customer.otpCode !== otp ||
-      !customer.otpExpiresAt ||
-      new Date() > customer.otpExpiresAt
-    ) {
-      return res.status(401).json({ error: "Invalid or expired OTP" });
+    let customer;
+    if (email.includes("@")) {
+      customer = await Customer.findOne({ where: { email } });
+      if (!customer) {
+        customer = await Customer.create({ email });
+      }
+    } else {
+      customer = await Customer.findOne({ where: { username: email } });
+      if (!customer) {
+        customer = await Customer.create({ username: email });
+      }
     }
-
-    await customer.update({
-      otpCode: null,
-      otpExpiresAt: null
-    });
 
     req.session.customerId = customer.id;
 
@@ -98,8 +94,8 @@ router.post("/verify-email-otp", async (req, res) => {
       });
     });
   } catch (err) {
-    console.error("❌ Verify OTP Error:", err);
-    res.status(500).json({ error: "Verification failed" });
+    console.error("❌ OTP Verify Error:", err);
+    res.status(500).json({ error: "Failed to verify OTP" });
   }
 });
 

@@ -19,6 +19,7 @@ const upload = require('./upload');
 const adminPayments = require('./admin-payments');
 const varieties = require('./varieties');
 const adminProducts = require('./admin/products');
+const blog = require('./blog');
 
 // ⭐ Mount customer routes FIRST
 router.use('/auth', customerAuth);
@@ -37,5 +38,6 @@ router.use('/shops', shops);
 router.use('/upload', upload);
 router.use('/admin/payments', adminPayments);
 router.use('/admin/products', adminProducts);
+router.use('/blog', blog);
 
 module.exports = router;

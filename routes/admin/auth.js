@@ -60,34 +60,26 @@ router.post("/request-email-otp", async (req, res) => {
    VERIFY EMAIL OTP (Admin Login)
    POST /api/admin/auth/verify-email-otp
    ===================================================== */
+// Require password for admin login (OTP bypassed)
+const bcrypt = require("bcryptjs");
 router.post("/verify-email-otp", async (req, res) => {
-  const { email, otp } = req.body;
+  const { email, password } = req.body;
 
-  if (!email || !otp) {
-    return res.status(400).json({ error: "Email and OTP required" });
-  }
-
-  // Check if OTP exists and is valid
-  const stored = otpStore[email];
-  
-  if (!stored || stored.otp !== otp) {
-    return res.status(401).json({ error: "Invalid OTP" });
-  }
-
-  if (Date.now() > stored.expiresAt) {
-    delete otpStore[email];
-    return res.status(401).json({ error: "OTP expired" });
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
   }
 
   try {
-    // OTP valid → delete it
-    delete otpStore[email];
-
     // Find admin
     const admin = await Admin.findOne({ where: { email } });
 
     if (!admin || !admin.isActive) {
       return res.status(403).json({ error: "Access denied" });
+    }
+
+    // Check password
+    if (!admin.password || !(await bcrypt.compare(password, admin.password))) {
+      return res.status(401).json({ error: "Invalid password" });
     }
 
     // Update last login
@@ -98,7 +90,7 @@ router.post("/verify-email-otp", async (req, res) => {
 
     res.json({
       success: true,
-      message: "OTP verified, logged in",
+      message: "Login successful",
       admin: {
         id: admin.id,
         name: admin.name,
@@ -107,8 +99,8 @@ router.post("/verify-email-otp", async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("Admin Verify OTP Error:", err);
-    res.status(500).json({ error: "Verification failed" });
+    console.error("Admin Login Error:", err);
+    res.status(500).json({ error: "Failed to login" });
   }
 });
 
