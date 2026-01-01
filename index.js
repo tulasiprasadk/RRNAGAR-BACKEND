@@ -9,7 +9,7 @@ const express = require("express");
 const cors = require("cors");
 const session = require("express-session");
 const { sequelize } = require("./models");
-
+const passport = require("./passport");
 const app = express();
 
 /* =============================
@@ -70,6 +70,10 @@ app.use(
     },
   })
 );
+
+app.use(passport.initialize());
+app.use(passport.session());
+
 
 /* =============================
    REQUEST LOGGER

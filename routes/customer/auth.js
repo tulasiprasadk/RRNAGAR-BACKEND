@@ -7,7 +7,7 @@ const express = require("express");
 const router = express.Router();
 const { Customer } = require("../../models");
 const { sendOTP } = require("../../services/emailService");
-
+const passport = require("passport");
 const isProd = process.env.NODE_ENV === "production";
 
 /* =====================================================
@@ -129,5 +129,34 @@ router.post("/logout", (req, res) => {
     res.json({ success: true });
   });
 });
+
+/* =====================================================
+   GOOGLE OAUTH (CUSTOMER)
+   GET /api/auth/google
+   GET /api/auth/google/callback
+===================================================== */
+
+router.get(
+  "/google",
+  passport.authenticate("customer-google", {
+    scope: ["profile", "email"]
+  })
+);
+
+router.get(
+  "/google/callback",
+  passport.authenticate("customer-google", {
+    failureRedirect: "/login",
+  }),
+  (req, res) => {
+    // Attach customer session (same pattern as OTP)
+    req.session.customerId = req.user.id;
+
+    req.session.save(() => {
+      res.redirect("/"); // frontend will handle logged-in state
+    });
+  }
+);
+
 
 module.exports = router;
