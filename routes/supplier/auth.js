@@ -7,6 +7,22 @@ const express = require("express");
 const router = express.Router();
 const { Supplier } = require("../../models");
 const { sendOTP } = require("../../services/emailService");
+const passport = require("../../passport").default || require("../../passport");
+// Google OAuth Supplier Login
+router.get("/google", passport.authenticate("supplier-google", { scope: ["profile", "email"] }));
+
+// Google OAuth Supplier Callback
+router.get(
+  "/google/callback",
+  passport.authenticate("supplier-google", {
+    failureRedirect: "/login?error=google",
+    session: true,
+  }),
+  (req, res) => {
+    // Redirect to supplier dashboard or send a success response
+    res.redirect("/supplier/dashboard");
+  }
+);
 
 const otpStore = {}; // Format: { email: { otp: "123456", expiresAt: timestamp } }
 

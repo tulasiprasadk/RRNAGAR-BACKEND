@@ -1,14 +1,33 @@
 /**
  * backend/routes/customer/auth.js
- * Customer Authentication Routes – FINAL CLEAN
+ * Customer Authentication Routes
+ * OTP stored in DB (no in-memory store)
  */
 
-const express = require("express");
+
+import express from "express";
+import { getModels } from "../../config/database.js";
+import { sendOTP } from "../../services/emailService.js";
+import passport from "../../passport.js";
+
 const router = express.Router();
-const { Customer } = require("../../models");
-const { sendOTP } = require("../../services/emailService");
-const passport = require("passport");
-const isProd = process.env.NODE_ENV === "production";
+const { Customer } = getModels();
+
+// Google OAuth Customer Login
+router.get("/google", passport.authenticate("customer-google", { scope: ["profile", "email"] }));
+
+// Google OAuth Customer Callback
+router.get(
+  "/google/callback",
+  passport.authenticate("customer-google", {
+    failureRedirect: "/login?error=google",
+    session: true,
+  }),
+  (req, res) => {
+    // Redirect to customer dashboard or send a success response
+    res.redirect("/customer/dashboard");
+  }
+);
 
 /* =====================================================
    REQUEST EMAIL OTP
@@ -18,14 +37,17 @@ router.post("/request-email-otp", async (req, res) => {
   const { email } = req.body;
 
   if (!email) {
-    return res.status(400).json({ error: "Email required" });
+    return res.status(400).json({ error: "Email or username is required" });
   }
 
   try {
     let customer;
 
+    // Email OR username login
     if (email.includes("@")) {
       customer = await Customer.findOne({ where: { email } });
+
+      // Auto-create customer if not exists (email flow)
       if (!customer) {
         customer = await Customer.create({ email });
       }
@@ -33,28 +55,31 @@ router.post("/request-email-otp", async (req, res) => {
       customer = await Customer.findOne({ where: { username: email } });
     }
 
-    // Always return success to avoid user enumeration
-    if (!customer?.email) {
-      return res.json({ success: true });
+    if (!customer || !customer.email) {
+      return res.status(404).json({ error: "User not found" });
     }
 
+    // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
+    // Save OTP in DB
     await customer.update({
       otpCode: otp,
-      otpExpiresAt: expiresAt
+      otpExpiresAt: expiresAt,
     });
 
+    // Send OTP
     await sendOTP(customer.email, otp);
 
-    if (!isProd) {
-      console.log("📧 OTP SENT (DEV):", customer.email, otp);
-    }
+    console.log("📧 CUSTOMER OTP SENT:", customer.email, otp);
 
-    res.json({ success: true, message: "OTP sent" });
+    res.json({
+      success: true,
+      message: "OTP sent to email",
+    });
   } catch (err) {
-    console.error("❌ OTP Send Error:", err);
+    console.error("Customer OTP Send Error:", err);
     res.status(500).json({ error: "Failed to send OTP" });
   }
 });
@@ -63,39 +88,50 @@ router.post("/request-email-otp", async (req, res) => {
    VERIFY EMAIL OTP
    POST /api/auth/verify-email-otp
 ===================================================== */
-// OTP bypass: only require email for login
 router.post("/verify-email-otp", async (req, res) => {
-  const { email } = req.body;
+  const { email, otp } = req.body;
 
-  if (!email) {
-    return res.status(400).json({ error: "Email required" });
+  if (!email || !otp) {
+    return res.status(400).json({ error: "Email and OTP required" });
   }
 
   try {
     let customer;
+
     if (email.includes("@")) {
       customer = await Customer.findOne({ where: { email } });
-      if (!customer) {
-        customer = await Customer.create({ email });
-      }
     } else {
       customer = await Customer.findOne({ where: { username: email } });
-      if (!customer) {
-        customer = await Customer.create({ username: email });
-      }
     }
 
+    if (!customer || !customer.otpCode) {
+      return res.status(401).json({ error: "Invalid OTP" });
+    }
+
+    if (
+      customer.otpCode !== otp ||
+      new Date() > customer.otpExpiresAt
+    ) {
+      return res.status(401).json({ error: "Invalid or expired OTP" });
+    }
+
+    // Clear OTP after success
+    await customer.update({
+      otpCode: null,
+      otpExpiresAt: null,
+    });
+
+    // Save session
     req.session.customerId = customer.id;
 
-    req.session.save(() => {
-      res.json({
-        success: true,
-        customerId: customer.id
-      });
+    res.json({
+      success: true,
+      message: "OTP verified, logged in",
+      customerId: customer.id,
     });
   } catch (err) {
-    console.error("❌ OTP Verify Error:", err);
-    res.status(500).json({ error: "Failed to verify OTP" });
+    console.error("Customer Verify OTP Error:", err);
+    res.status(500).json({ error: "Verification failed" });
   }
 });
 
@@ -103,15 +139,28 @@ router.post("/verify-email-otp", async (req, res) => {
    CHECK LOGIN STATUS
    GET /api/auth/me
 ===================================================== */
-router.get("/me", (req, res) => {
+router.get("/me", async (req, res) => {
   if (!req.session?.customerId) {
     return res.status(401).json({ loggedIn: false });
   }
 
-  res.json({
-    loggedIn: true,
-    customerId: req.session.customerId
-  });
+  try {
+    const customer = await Customer.findByPk(req.session.customerId, {
+      attributes: { exclude: ["otpCode", "otpExpiresAt", "password"] },
+    });
+
+    if (!customer) {
+      return res.status(401).json({ loggedIn: false });
+    }
+
+    res.json({
+      loggedIn: true,
+      user: customer,
+    });
+  } catch (err) {
+    console.error("Customer Auth Check Error:", err);
+    res.status(500).json({ loggedIn: false });
+  }
 });
 
 /* =====================================================
@@ -120,43 +169,9 @@ router.get("/me", (req, res) => {
 ===================================================== */
 router.post("/logout", (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie("rrnagar.sid", {
-      path: "/",
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax"
-    });
+    res.clearCookie("rrnagar.sid");
     res.json({ success: true });
   });
 });
 
-/* =====================================================
-   GOOGLE OAUTH (CUSTOMER)
-   GET /api/auth/google
-   GET /api/auth/google/callback
-===================================================== */
-
-router.get(
-  "/google",
-  passport.authenticate("customer-google", {
-    scope: ["profile", "email"]
-  })
-);
-
-router.get(
-  "/google/callback",
-  passport.authenticate("customer-google", {
-    failureRedirect: "/login",
-  }),
-  (req, res) => {
-    // Attach customer session (same pattern as OTP)
-    req.session.customerId = req.user.id;
-
-    req.session.save(() => {
-      res.redirect("/"); // frontend will handle logged-in state
-    });
-  }
-);
-
-
-module.exports = router;
+export default router;

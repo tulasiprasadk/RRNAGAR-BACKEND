@@ -8,8 +8,9 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const session = require("express-session");
-const { sequelize } = require("./models");
-const passport = require("./passport");
+const { sequelize } = require("./config/database.js");
+let passport = require("./passport");
+if (passport && passport.default) passport = passport.default;
 const app = express();
 
 /* =============================
@@ -91,18 +92,24 @@ app.get("/", (req, res) => {
 });
 
 // CUSTOMER
-app.use("/api/auth", require("./routes/customer/auth"));
-app.use("/api/customer/profile", require("./routes/customer/profile"));
-app.use("/api/customer/address", require("./routes/customer/address"));
+
+function requireRoute(path) {
+  const mod = require(path);
+  return mod && mod.default ? mod.default : mod;
+}
+
+app.use("/api/auth", requireRoute("./routes/customer/auth"));
+app.use("/api/customer/profile", requireRoute("./routes/customer/profile"));
+app.use("/api/customer/address", requireRoute("./routes/customer/address"));
 
 // ADMIN
-// app.use("/api/admin/auth", require("./routes/admin/auth"));
-app.use("/api/admin", require("./routes/admin/index.js"));
+// app.use("/api/admin/auth", requireRoute("./routes/admin/auth"));
+app.use("/api/admin", requireRoute("./routes/admin/index.js"));
 
 // GENERAL
-app.use("/api/products", require("./routes/products"));
-app.use("/api/categories", require("./routes/categories"));
-app.use("/api/orders", require("./routes/orders"));
+app.use("/api/products", requireRoute("./routes/products"));
+app.use("/api/categories", requireRoute("./routes/categories"));
+app.use("/api/orders", requireRoute("./routes/orders"));
 
 app.use("/uploads", express.static("uploads"));
 

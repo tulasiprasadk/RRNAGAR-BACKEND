@@ -1,22 +1,39 @@
-require('dotenv').config();
-const { Sequelize } = require('sequelize');
+import { Sequelize } from "sequelize";
+import initModels from "../models/index.js";
 
-const isProd = process.env.NODE_ENV === 'production';
-console.log('[DEBUG] process.env.DATABASE_URL:', process.env.DATABASE_URL);
-const dbUrl = process.env.DATABASE_URL;
-
-const sequelize = new Sequelize(dbUrl, {
-  dialect: 'postgres',
-  protocol: 'postgres',
+const isProd = process.env.NODE_ENV === "production";
+const sequelize = new Sequelize(process.env.DATABASE_URL, {
+  dialect: "postgres",
   logging: false,
-  dialectOptions: {
-    charset: 'utf8mb4',
-    ssl: isProd ? { require: true, rejectUnauthorized: false } : false
+  dialectOptions: isProd
+    ? { ssl: { require: true, rejectUnauthorized: false } }
+    : {},
+  pool: {
+    max: 5,
+    min: 0,
+    acquire: 30000,
+    idle: 10000,
   },
-  define: {
-    charset: 'utf8mb4',
-    collate: 'utf8mb4_unicode_ci'
-  }
 });
 
-module.exports = sequelize;
+
+let models;
+export function getModels() {
+  if (!models) {
+    models = initModels(sequelize);
+  }
+  return models;
+}
+
+export async function initDatabase() {
+  try {
+    await sequelize.authenticate();
+    console.log("✅ Database connected");
+    await sequelize.sync();
+    console.log("✅ Database synced");
+  } catch (err) {
+    console.error("❌ Database initialization error:", err);
+  }
+}
+
+export { sequelize };
